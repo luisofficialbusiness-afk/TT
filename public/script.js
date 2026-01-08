@@ -1,119 +1,84 @@
-// ===== Terminal Talker V1 Script with Permanent Login & !myid =====
-const input = document.getElementById("terminal-input");
-const messagesDiv = document.getElementById("messages");
-const typingIndicator = document.getElementById("typing-indicator");
+const output = document.getElementById("output");
+const input = document.getElementById("input");
+const typingBox = document.getElementById("typing");
 
-let username = "";
-let room = "main";
-let userId = Math.floor(Math.random()*1000000).toString();
-let typingTimeout;
+// 🔒 SET OWNER USERNAME HERE
+const OWNER_USERNAME = "RVEPRTY";
 
-// Permanent Users for login
-const USERS = {
-  "ownerUser": { role: "owner", password: "O#0363168", id: "1001" },
-  "adminUser": { role: "admin", password: "admin01", id: "1002" },
-  "betaUser1": { role: "beta", password: "BETA123", id: "1003" }
-};
-
-// ===== Functions =====
-function addSystemMessage(msg){
-  const div = document.createElement("div");
-  div.className = "terminal-msg";
-  div.innerHTML = `<span style="color:#ff0">[SYSTEM]</span> ${msg}`;
-  messagesDiv.appendChild(div);
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+let username = localStorage.getItem("tt_username");
+if (!username) {
+  username = prompt("Choose a username (permanent):");
+  localStorage.setItem("tt_username", username);
 }
 
-function addMessage(msg, user, role){
-  const div = document.createElement("div");
-  div.className = "terminal-msg";
-  let badge = "";
-  if(role==="owner") badge="[OWNER]";
-  else if(role==="admin") badge="[ADMIN]";
-  else if(role==="beta") badge="[BETA]";
-  div.innerHTML = `${badge ? `<span class="badge">${badge}</span>` : ""}<strong>${user}:</strong> ${msg}`;
-  messagesDiv.appendChild(div);
-  messagesDiv.scrollTop = messagesDiv.scrollHeight;
+function getRole(user) {
+  return user === OWNER_USERNAME ? "OWNER" : "USER";
 }
 
-// ===== Login Command =====
-function loginCommand(msg){
-  const parts = msg.split(" ");
-  const command = parts[0];
-  const password = parts[1];
-  if(["!login","!ownlogin","!betalogin"].includes(command)){
-    for(let user in USERS){
-      if(USERS[user].password === password){
-        username = user;
-        userId = USERS[user].id;
-        addSystemMessage(`Logged in as ${username} with role ${USERS[user].role}`);
-        return USERS[user].role;
-      }
-    }
-    addSystemMessage("Incorrect password");
-  }
+function addLine(user, text) {
+  const role = getRole(user);
+  const span = document.createElement("span");
+  span.className = role === "OWNER" ? "owner" : "user";
+  span.textContent = `[${role}] ${user}: ${text}`;
+  output.appendChild(span);
+  output.appendChild(document.createElement("br"));
+  output.scrollTop = output.scrollHeight;
 }
 
-// ===== Send Message =====
-async function sendMessage(msg){
-  await fetch("/api/messages",{
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({username,message:msg,room})
-  });
-}
-
-// ===== Typing =====
-function setTyping(){
-  fetch("/api/typing",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
-}
-
-// ===== Fetch Messages =====
-async function fetchMessages(){
+async function fetchMessages() {
   const res = await fetch("/api/messages");
   const data = await res.json();
-  messagesDiv.innerHTML="";
-  data.forEach(m=>addMessage(m.message,m.username,m.role));
+  output.innerHTML = "";
+  data.forEach(msg => addLine(msg.user, msg.text));
 }
-setInterval(fetchMessages,1000);
 
-setInterval(async()=>{
+async function fetchTyping() {
   const res = await fetch("/api/typing");
   const data = await res.json();
-  if(data.typing.length>0){
-    typingIndicator.classList.remove("hidden");
-    typingIndicator.innerText = `${data.typing.join(", ")} is typing...`;
-  } else typingIndicator.classList.add("hidden");
-},500);
+  const othersTyping = data.users.filter(u => u !== username);
+  typingBox.textContent = othersTyping.length > 0 ? `${othersTyping.join(", ")} typing...` : "";
+}
 
-// ===== Input Handling =====
-input.addEventListener("input",()=>{
+let typingTimeout;
+
+input.addEventListener("input", async () => {
+  await fetch("/api/typing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user: username, typing: true })
+  });
+
   clearTimeout(typingTimeout);
-  setTyping();
-  typingTimeout = setTimeout(()=>{},1000);
+  typingTimeout = setTimeout(async () => {
+    await fetch("/api/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: username, typing: false })
+    });
+  }, 1500);
 });
 
-input.addEventListener("keydown",async(e)=>{
-  if(e.key==="Enter" && input.value.trim()!==""){
-    const msg = input.value.trim();
+input.addEventListener("keydown", async (e) => {
+  if (e.key === "Enter" && input.value.trim()) {
+    await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: username, text: input.value })
+    });
 
-    // Login commands
-    if(msg.startsWith("!login") || msg.startsWith("!ownlogin") || msg.startsWith("!betalogin")){
-      loginCommand(msg);
-      input.value="";
-      return;
-    }
+    await fetch("/api/typing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: username, typing: false })
+    });
 
-    // Show User ID
-    if(msg === "!myid"){
-      addSystemMessage(`Your User ID is: ${userId}`);
-      input.value="";
-      return;
-    }
-
-    // Send normal messages
-    input.value="";
-    addMessage(msg,username,"user");
-    await sendMessage(msg);
+    input.value = "";
+    fetchMessages();
   }
 });
+
+setInterval(fetchMessages, 2000);
+setInterval(fetchTyping, 1000);
+
+fetchMessages();
+fetchTyping();
