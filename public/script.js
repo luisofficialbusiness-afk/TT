@@ -3,7 +3,7 @@ const input = document.getElementById("input");
 const typingBox = document.getElementById("typing");
 
 // 🔒 SET OWNER USERNAME HERE
-const OWNER_USERNAME = "YOUR_USERNAME_HERE";
+const OWNER_USERNAME = "RVEPRTY";
 
 let username = localStorage.getItem("tt_username");
 if (!username) {
